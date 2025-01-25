@@ -15,7 +15,6 @@ from bs4 import BeautifulSoup
 # Set page language and title
 st.set_page_config(page_title="Calculadora de TIR de Bonos")
 
-
 def fetch_current_prices():
     """Fetch current prices from Google Sheets CSV"""
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSh_h0veiwhaDs-8u0W75LcPc7DoKQ_zWjsMN6EHzfMlgWvGJMC_AFe319FTQXps3ACnkgEZaNPJopz/pub?gid=1705467858&single=true&output=csv"
@@ -45,6 +44,7 @@ def fetch_current_prices():
     except Exception as e:
         st.error(f"Error al obtener los precios: {str(e)}")
         return {}
+
 def xnpv(rate, values, dates):
     """Calculate the Net Present Value with irregular time periods"""
     if rate <= -1.0:
@@ -54,7 +54,6 @@ def xnpv(rate, values, dates):
         vi / (1.0 + rate) ** ((di - d0).days / 365.0)
         for vi, di in zip(values, dates)
     ])
-
 
 def xirr(values, dates):
     """Calculate IRR for irregular time periods"""
@@ -68,25 +67,28 @@ def xirr(values, dates):
     except (RuntimeError, ValueError):
         return float('nan')
 
-
 def calculate_irr_with_timing(cashflows, dates, price, start_date):
     """Calculate IRR considering the actual timing of cash flows"""
     values = [-price] + cashflows
     dates = [start_date] + dates
     return xirr(values, dates)
 
-
-def parse_number(number_str):
-    """Parse a number string that might contain dots as thousand separators and comma as decimal separator"""
+def parse_number(number_str, format_type):
+    """Parse a number string based on the selected format"""
     try:
-        cleaned_str = number_str.replace('.', '')
-        cleaned_str = cleaned_str.replace(',', '.')
-        return float(cleaned_str)
+        if format_type == "Punto decimal y coma para miles (1,234.56)":
+            # Remove thousand separators (commas) and keep decimal point
+            cleaned_str = number_str.replace(',', '')
+            return float(cleaned_str)
+        else:
+            # Format with comma as decimal and dots as thousand separators
+            cleaned_str = number_str.replace('.', '')
+            cleaned_str = cleaned_str.replace(',', '.')
+            return float(cleaned_str)
     except ValueError as e:
         raise ValueError(f"No se pudo procesar el número: {number_str}") from e
 
-
-def parse_cashflows(text):
+def parse_cashflows(text, number_format):
     """Parse cash flows from text input with format 'DD/MM/YYYY Coupon'"""
     cashflows = []
     dates = []
@@ -105,10 +107,10 @@ def parse_cashflows(text):
                     continue
 
                 try:
-                    amount = parse_number(amount_str.strip())
+                    amount = parse_number(amount_str.strip(), number_format)
                 except ValueError:
-                    st.error(
-                        f"Formato de monto inválido en la línea: {line}. Use números con puntos como separador de miles y coma como separador decimal")
+                    format_example = "1,234.56" if number_format == "Punto decimal y coma para miles (1,234.56)" else "1.234,56"
+                    st.error(f"Formato de monto inválido en la línea: {line}. Use el formato {format_example}")
                     continue
 
                 cashflows.append(amount)
@@ -122,7 +124,6 @@ def parse_cashflows(text):
 
     return cashflows, dates
 
-
 def load_bonds_from_csv():
     try:
         df = pd.read_csv('Cashflowbonos.csv')
@@ -131,6 +132,7 @@ def load_bonds_from_csv():
     except FileNotFoundError:
         st.error("No se encontró el archivo Cashflowbonos.csv en el directorio")
         return None, None
+
 # Set up the Streamlit page
 st.title('Calculadora de TIR de Bonos con Análisis de Sensibilidad')
 
@@ -191,43 +193,33 @@ if input_method == "Seleccionar bonos predefinidos":
                 all_cashflows.append(bond_cashflows)
                 all_dates.append(bond_dates)
 
-            # Create separate IRR calculations for each bond
-            irr_results = {}
-            for bond, cashflows, dates, price in zip(selected_bonds, all_cashflows, all_dates, bond_prices.values()):
-                irr = calculate_irr_with_timing(cashflows, dates, price, settlement_date) * 100
-                irr_results[bond] = irr
-
-            # Display IRRs for each bond
-            st.subheader('TIR por Bono:')
-            for bond, irr in irr_results.items():
-                st.write(f'{bond}: {irr:.2f}%')
-
-            # Create combined DataFrame for display
-            all_data = []
-            for bond, cashflows, dates in zip(selected_bonds, all_cashflows, all_dates):
-                for cf, date in zip(cashflows, dates):
-                    all_data.append({
-                        'Bono': bond,
-                        'Fecha': date,
-                        'Días desde Liquidación': (date - settlement_date).days,
-                        'Años desde Liquidación': (date - settlement_date).days / 365,
-                        'Flujo de Caja': cf
-                    })
-
-            df_input = pd.DataFrame(all_data)
-            df_input = df_input.sort_values('Fecha')
-
 else:
+    # Add number format selector
+    number_format = st.radio(
+        "Seleccione el formato de números:",
+        ["Punto decimal y coma para miles (1,234.56)",
+         "Coma decimal y punto para miles (1.234,56)"],
+        horizontal=True
+    )
+
     st.subheader('Ingrese los Flujos de Caja (Formato: DD/MM/YYYY Cupón)')
-    st.text('Ejemplos:\n01/01/2024    50,5\n01/07/2024\t1.050,5\n01/01/2025 1.000.050,5')
+
+    # Show example based on selected format
+    if number_format == "Punto decimal y coma para miles (1,234.56)":
+        st.text('Ejemplos:\n01/01/2024    50.5\n01/07/2024\t1,050.5\n01/01/2025 1,000,050.5')
+    else:
+        st.text('Ejemplos:\n01/01/2024    50,5\n01/07/2024\t1.050,5\n01/01/2025 1.000.050,5')
 
     cashflow_text = st.text_area(
         'Pegue sus flujos de caja aquí (uno por línea):',
         height=200
     )
+
     if cashflow_text:
-        cashflows, dates = parse_cashflows(cashflow_text)
+        cashflows, dates = parse_cashflows(cashflow_text, number_format)
         current_price = st.number_input('Precio Actual del Bono', min_value=0.01, value=1000.0)
+
+# [Rest of your original script continues here...]
 # Display processed cash flows and sensitivity analysis
 if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         (input_method == "Ingresar flujos manualmente" and cashflow_text):
@@ -235,10 +227,12 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     # Display processed cash flows
     st.subheader('Flujos de Caja Procesados')
     if input_method == "Seleccionar bonos predefinidos":
-        st.dataframe(df_input.assign(
-            Flujo_de_Caja=df_input['Flujo de Caja'].apply(
-                lambda x: f"{x:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.'))
-        ))
+        df_input = pd.DataFrame(all_data)
+        df_input = df_input.sort_values('Fecha')
+        df_input['Flujo de Caja'] = df_input['Flujo de Caja'].apply(
+            lambda x: f"{x:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.')
+        )
+        st.dataframe(df_input)
     else:
         df_manual = pd.DataFrame({
             'Fecha': dates,
@@ -246,17 +240,24 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
             'Años desde Liquidación': [(date - settlement_date).days / 365 for date in dates],
             'Flujo de Caja': cashflows
         })
-        st.dataframe(df_manual.assign(
-            Flujo_de_Caja=df_manual['Flujo de Caja'].apply(
-                lambda x: f"{x:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.'))
-        ))
+
+        # Format numbers according to selected format
+        if number_format == "Punto decimal y coma para miles (1,234.56)":
+            formatted_cashflows = df_manual['Flujo de Caja'].apply(lambda x: f"{x:,.2f}")
+        else:
+            formatted_cashflows = df_manual['Flujo de Caja'].apply(
+                lambda x: f"{x:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.')
+            )
+
+        df_manual['Flujo de Caja'] = formatted_cashflows
+        st.dataframe(df_manual)
 
     # Price sensitivity range
     price_change_percent = st.slider('Rango de Variación de Precio (%)', -50, 50, (-20, 20))
 
     # X-axis selection
     x_axis_option = st.radio(
-        "Seleccione el eje Y:",  # Changed from X to Y since axes are inverted
+        "Seleccione el eje Y:",
         ["Precio", "Variación Porcentual del Precio"],
         horizontal=True
     )
@@ -405,14 +406,22 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
 
             sensitivity_df = pd.DataFrame(sensitivity_data)
             st.subheader(f'Sensibilidad para {bond}')
-            formatted_df = sensitivity_df.round(2).apply(
-                lambda x: x.apply(lambda y: f"{y:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.'))
-                if x.name != 'Variación de Precio (%)' else x
-            )
+
+            # Format numbers according to selected format
+            formatted_df = sensitivity_df.round(2)
+            if input_method == "Ingresar flujos manualmente" and number_format == "Punto decimal y coma para miles (1,234.56)":
+                formatted_df = formatted_df.apply(lambda x: x.apply(lambda y: f"{y:,.2f}")
+                                               if x.name != 'Variación de Precio (%)' else x)
+            else:
+                formatted_df = formatted_df.apply(
+                    lambda x: x.apply(lambda y: f"{y:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.'))
+                    if x.name != 'Variación de Precio (%)' else x
+                )
+
             st.dataframe(formatted_df)
 
             # Download button for each bond
-            csv = sensitivity_df.to_csv(index=False, decimal=',')
+            csv = sensitivity_df.to_csv(index=False, decimal=',' if number_format == "Coma decimal y punto para miles (1.234,56)" else '.')
             st.download_button(
                 label=f"Descargar Análisis de Sensibilidad de {bond} como CSV",
                 data=csv,
@@ -431,14 +440,23 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         }
 
         sensitivity_df = pd.DataFrame(sensitivity_data)
-        formatted_df = sensitivity_df.round(2).apply(
-            lambda x: x.apply(lambda y: f"{y:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.'))
-            if x.name != 'Variación de Precio (%)' else x
-        )
+
+        # Format numbers according to selected format
+        if number_format == "Punto decimal y coma para miles (1,234.56)":
+            formatted_df = sensitivity_df.round(2).apply(
+                lambda x: x.apply(lambda y: f"{y:,.2f}")
+                if x.name != 'Variación de Precio (%)' else x
+            )
+        else:
+            formatted_df = sensitivity_df.round(2).apply(
+                lambda x: x.apply(lambda y: f"{y:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.'))
+                if x.name != 'Variación de Precio (%)' else x
+            )
+
         st.dataframe(formatted_df)
 
         # Download button for single bond
-        csv = sensitivity_df.to_csv(index=False, decimal=',')
+        csv = sensitivity_df.to_csv(index=False, decimal=',' if number_format == "Coma decimal y punto para miles (1.234,56)" else '.')
         st.download_button(
             label="Descargar Análisis de Sensibilidad como CSV",
             data=csv,
