@@ -181,19 +181,33 @@ if input_method == "Seleccionar bonos predefinidos":
             # Get cashflows for each bond separately
             all_cashflows = []
             all_dates = []
+            all_data = []  # Initialize all_data list here
+
             for bond in selected_bonds:
                 bond_data = bonds_df[bonds_df['Bono'] == bond]
                 bond_cashflows = []
                 bond_dates = []
+
                 for _, row in bond_data.iterrows():
                     date = datetime.strptime(row['Fecha'], '%d/%m/%Y')
                     cashflow = float(row['Cashflow'])
                     bond_cashflows.append(cashflow)
                     bond_dates.append(date)
+
+                    # Add data to all_data list
+                    all_data.append({
+                        'Bono': bond,
+                        'Fecha': date,
+                        'Días desde Liquidación': (date - settlement_date).days,
+                        'Años desde Liquidación': (date - settlement_date).days / 365,
+                        'Flujo de Caja': cashflow
+                    })
+
                 all_cashflows.append(bond_cashflows)
                 all_dates.append(bond_dates)
 
 else:
+    # [Rest of the code for manual input remains the same]
     # Add number format selector
     number_format = st.radio(
         "Seleccione el formato de números:",
