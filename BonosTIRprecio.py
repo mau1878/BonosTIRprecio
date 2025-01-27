@@ -420,14 +420,14 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
             annotations=[
                 dict(
                     text="MTaurus - X: @mtaurus_ok",
-                    x=0.98,
-                    y=0.15,  # Adjusted to be above the legend box
+                    x=0.5,
+                    y=0.5,  # Adjusted to be above the legend box
                     xref="paper",
                     yref="paper",
                     showarrow=False,
                     font=dict(
                         size=30,
-                        color="rgba(50,50, 50, 0.1)"
+                        color="rgba(100,100, 100, 0.1)"
                     ),
                     textangle=0,
                     align="right",
