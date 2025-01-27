@@ -15,6 +15,8 @@ from bs4 import BeautifulSoup
 # Set page language and title
 st.set_page_config(page_title="Calculadora de TIR de Bonos")
 
+
+
 def fetch_current_prices():
     """Fetch current prices from Google Sheets CSV"""
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSh_h0veiwhaDs-8u0W75LcPc7DoKQ_zWjsMN6EHzfMlgWvGJMC_AFe319FTQXps3ACnkgEZaNPJopz/pub?gid=1705467858&single=true&output=csv"
@@ -88,8 +90,8 @@ def parse_number(number_str, format_type):
     except ValueError as e:
         raise ValueError(f"No se pudo procesar el número: {number_str}") from e
 
-def parse_cashflows(text, number_format):
-    """Parse cash flows from text input with format 'DD/MM/YYYY Coupon'"""
+def parse_cashflows(text, number_format, settlement_date):
+    """Parse cash flows from text input with 'DD/MM/YYYY Coupon' and filter by settlement date"""
     cashflows = []
     dates = []
 
@@ -102,6 +104,9 @@ def parse_cashflows(text, number_format):
 
                 try:
                     date = datetime.strptime(date_str, '%d/%m/%Y')
+                    # Skip if date is equal to or before settlement date
+                    if date <= settlement_date:
+                        continue
                 except ValueError:
                     st.error(f"Formato de fecha inválido en la línea: {line}. Use DD/MM/YYYY")
                     continue
@@ -137,11 +142,31 @@ def load_bonds_from_csv():
 st.title('Calculadora de TIR de Bonos con Análisis de Sensibilidad')
 
 # Input method selection
+# Add this near the top of the script, after the imports and before the input method selection
+default_number_format = "Punto decimal y coma para miles (1,234.56)"  # default format
+
+# Input method selection
 input_method = st.radio(
     "Seleccione el método de entrada:",
     ["Seleccionar bonos predefinidos", "Ingresar flujos manualmente"],
     horizontal=True
 )
+
+# Initialize number_format with default value
+number_format = default_number_format
+
+if input_method == "Seleccionar bonos predefinidos":
+    # Existing predefined bonds code...
+    pass
+else:
+    # Number format selector for manual input
+    number_format = st.radio(
+        "Seleccione el formato de números:",
+        ["Punto decimal y coma para miles (1,234.56)",
+         "Coma decimal y punto para miles (1.234,56)"],
+        horizontal=True
+    )
+    # Rest of the manual input code...
 
 # Get today's date
 today = datetime.now()
@@ -183,6 +208,7 @@ if input_method == "Seleccionar bonos predefinidos":
             all_dates = []
             all_data = []  # Initialize all_data list here
 
+            # Inside the "Seleccionar bonos predefinidos" section:
             for bond in selected_bonds:
                 bond_data = bonds_df[bonds_df['Bono'] == bond]
                 bond_cashflows = []
@@ -190,6 +216,9 @@ if input_method == "Seleccionar bonos predefinidos":
 
                 for _, row in bond_data.iterrows():
                     date = datetime.strptime(row['Fecha'], '%d/%m/%Y')
+                    # Skip if date is equal to or before settlement date
+                    if date <= settlement_date:
+                        continue
                     cashflow = float(row['Cashflow'])
                     bond_cashflows.append(cashflow)
                     bond_dates.append(date)
@@ -230,13 +259,23 @@ else:
     )
 
     if cashflow_text:
-        cashflows, dates = parse_cashflows(cashflow_text, number_format)
+        cashflows, dates = parse_cashflows(cashflow_text, number_format, settlement_date)
         current_price = st.number_input('Precio Actual del Bono', min_value=0.01, value=1000.0)
 
 # [Rest of your original script continues here...]
 # Display processed cash flows and sensitivity analysis
 if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         (input_method == "Ingresar flujos manualmente" and cashflow_text):
+
+    # Modified check to handle both cases
+    if input_method == "Seleccionar bonos predefinidos":
+        if all(len(cf) == 0 for cf in all_cashflows):
+            st.warning("No hay flujos de caja futuros disponibles después de la fecha de liquidación.")
+            st.stop()
+    else:  # manual input
+        if not cashflows or len(cashflows) == 0:
+            st.warning("No hay flujos de caja futuros disponibles después de la fecha de liquidación.")
+            st.stop()
 
     # Display processed cash flows
     st.subheader('Flujos de Caja Procesados')
