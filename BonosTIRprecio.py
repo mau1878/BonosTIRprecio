@@ -137,6 +137,32 @@ def load_bonds_from_csv():
     except FileNotFoundError:
         st.error("No se encontró el archivo Cashflowbonos.csv en el directorio")
         return None, None
+def calculate_modified_duration(cashflows, dates, price, settlement_date, irr):
+    """Calculate Modified Duration for a bond"""
+    if not cashflows or not dates:
+        return 0
+
+    # Convert IRR from percentage to decimal
+    irr = irr / 100
+
+    # Calculate present value of each cash flow and its contribution to duration
+    total_pv = 0
+    weighted_time = 0
+
+    for cf, date in zip(cashflows, dates):
+        time_to_cf = (date - settlement_date).days / 365.0
+        pv_factor = 1 / ((1 + irr) ** time_to_cf)
+        pv = cf * pv_factor
+        total_pv += pv
+        weighted_time += pv * time_to_cf
+
+    # Calculate Macaulay Duration
+    macaulay_duration = weighted_time / price
+
+    # Calculate Modified Duration
+    modified_duration = macaulay_duration / (1 + irr)
+
+    return modified_duration
 
 # Set up the Streamlit page
 st.title('Calculadora de TIR de Bonos con Análisis de Sensibilidad')
@@ -305,6 +331,121 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     )
 
     # Create sensitivity analysis chart
+    # Create IRR vs Modified Duration scatter plot
+    # Create IRR vs Modified Duration scatter plot
+    # Create IRR vs Modified Duration scatter plot
+    # Create IRR vs Modified Duration scatter plot
+    if input_method == "Seleccionar bonos predefinidos" and selected_bonds:
+        fig_md = go.Figure()
+
+        # Define color palette
+        colors = px.colors.qualitative.Set3[:len(selected_bonds)]
+
+        # Calculate IRR and MD for each bond
+        irr_md_data = []
+        for bond, cashflows, dates, price, color in zip(selected_bonds, all_cashflows, all_dates, bond_prices.values(),
+                                                        colors):
+            current_irr = calculate_irr_with_timing(cashflows, dates, price, settlement_date) * 100
+            modified_duration = calculate_modified_duration(cashflows, dates, price, settlement_date, current_irr)
+            irr_md_data.append({
+                'Bond': bond,
+                'IRR': current_irr,
+                'MD': modified_duration,
+                'Color': color
+            })
+
+        # Create DataFrame
+        df_irr_md = pd.DataFrame(irr_md_data)
+
+        # Add scatter plot for each bond
+        for bond, color in zip(selected_bonds, colors):
+            bond_data = df_irr_md[df_irr_md['Bond'] == bond]
+            fig_md.add_trace(go.Scatter(
+                x=bond_data['MD'],
+                y=bond_data['IRR'],
+                mode='markers+text',
+                text=bond_data['Bond'],
+                textposition='top center',
+                name=bond,
+                marker=dict(size=10, color=color),
+                showlegend=True
+            ))
+
+        # Add polynomial trendline
+        z = np.polyfit(df_irr_md['MD'], df_irr_md['IRR'], 2)
+        p = np.poly1d(z)
+
+        x_range = np.linspace(df_irr_md['MD'].min(), df_irr_md['MD'].max(), 100)
+        y_trend = p(x_range)
+
+        # Add trendline to plot
+        fig_md.add_trace(go.Scatter(
+            x=x_range,
+            y=y_trend,
+            mode='lines',
+            name='Tendencia Polinómica',
+            line=dict(color='rgba(255, 0, 0, 0.5)', dash='dash'),
+            hovertemplate='MD: %{x:.2f}<br>TIR: %{y:.2f}%<extra></extra>'
+        ))
+
+        # Update layout
+        fig_md.update_layout(
+            title='TIR vs Duración Modificada',
+            plot_bgcolor='rgba(0,0,0,0)',  # Transparent background
+            paper_bgcolor='rgba(0,0,0,0)',  # Transparent background
+            title_font_size=24,
+            xaxis=dict(
+                title='Duración Modificada (años)',
+                title_font=dict(size=18),
+                tickfont=dict(size=14),
+                gridcolor='dimgray',
+                showgrid=True,
+                zeroline=True,
+                zerolinecolor='black',
+                zerolinewidth=1
+            ),
+            yaxis=dict(
+                title='TIR (%)',
+                title_font=dict(size=18),
+                tickfont=dict(size=14),
+                gridcolor='dimgray',
+                showgrid=True,
+                zeroline=True,
+                zerolinecolor='black',
+                zerolinewidth=1
+            ),
+            annotations=[
+                dict(
+                    text="MTaurus - X: @mtaurus_ok",
+                    x=0.98,
+                    y=0.15,  # Adjusted to be above the legend box
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(
+                        size=30,
+                        color="rgba(50,50, 50, 0.1)"
+                    ),
+                    textangle=0,
+                    align="right",
+                )
+            ],
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",  # Change from "right" to "left"
+                x=1.02,  # Position legend outside the plot area (value > 1)
+                bgcolor="rgba(0, 0, 0, 0.7)",
+                bordercolor="rgba(0,0,0,0.1)",
+                borderwidth=1
+            ),
+            margin=dict(r=150)  # Add right margin to make room for the legend
+
+        )
+
+        # Display the chart
+        st.plotly_chart(fig_md)
     fig = go.Figure()
 
     if input_method == "Seleccionar bonos predefinidos":
