@@ -155,18 +155,7 @@ input_method = st.radio(
 # Initialize number_format with default value
 number_format = default_number_format
 
-if input_method == "Seleccionar bonos predefinidos":
-    # Existing predefined bonds code...
-    pass
-else:
-    # Number format selector for manual input
-    number_format = st.radio(
-        "Seleccione el formato de números:",
-        ["Punto decimal y coma para miles (1,234.56)",
-         "Coma decimal y punto para miles (1.234,56)"],
-        horizontal=True
-    )
-    # Rest of the manual input code...
+
 
 # Get today's date
 today = datetime.now()
