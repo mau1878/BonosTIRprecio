@@ -338,8 +338,11 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     if input_method == "Seleccionar bonos predefinidos" and selected_bonds:
         fig_md = go.Figure()
 
-        # Define color palette
-        colors = px.colors.qualitative.Set3[:len(selected_bonds)]
+        # Define an extended color palette that supports up to 20 items
+        colors = (px.colors.qualitative.Set3 +
+                  px.colors.qualitative.Set1 +
+                  px.colors.qualitative.Pastel1 +
+                  px.colors.qualitative.Safe)[:20]  # Combine multiple palettes
 
         # Calculate IRR and MD for each bond
         irr_md_data = []
@@ -434,14 +437,15 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
             legend=dict(
                 yanchor="top",
                 y=0.99,
-                xanchor="left",  # Change from "right" to "left"
-                x=1.02,  # Position legend outside the plot area (value > 1)
+                xanchor="left",
+                x=1.02,
                 bgcolor="rgba(0, 0, 0, 0.7)",
                 bordercolor="rgba(0,0,0,0.1)",
-                borderwidth=1
+                borderwidth=1,
+                itemsizing='constant',  # Makes legend items constant size
+                font=dict(size=10),  # Smaller font size for legend
             ),
-            margin=dict(r=150)  # Add right margin to make room for the legend
-
+            margin=dict(r=200)  # Increased right margin for larger legend
         )
 
         # Display the chart
