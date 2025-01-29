@@ -493,11 +493,9 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
 
     # Price sensitivity range
     price_change_percent = st.slider('Rango de Variación de Precio (%)', -50, 50, (-20, 20))
-
-    # X-axis selection
-    x_axis_option = st.radio(
-        "Seleccione el eje Y:",
-        ["Precio", "Variación Porcentual del Precio"],
+    plot_type = st.radio(
+        "Seleccione el tipo de gráfico:",
+        ["Precio Absoluto", "Variación Porcentual del Precio", "Variación Porcentual Precio vs TIR"],
         horizontal=True
     )
 
@@ -623,72 +621,79 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         st.plotly_chart(fig_md)
     fig = go.Figure()
 
+    # Modify the plotting section:
     if input_method == "Seleccionar bonos predefinidos":
         colors = px.colors.qualitative.Set3[:len(selected_bonds)]
         for bond, cashflows, dates, price, color in zip(selected_bonds, all_cashflows, all_dates, bond_prices.values(),
                                                         colors):
-            # Calculate price range for this bond
+            # Calculate current IRR as reference point
+            current_irr = calculate_irr_with_timing(cashflows, dates, price, settlement_date) * 100
+
+            # Calculate price range
             price_range = np.linspace(
                 price * (1 + price_change_percent[0] / 100),
                 price * (1 + price_change_percent[1] / 100),
                 100
             )
 
-            # Calculate IRRs and price changes
+            # Calculate IRRs
             irrs = [calculate_irr_with_timing(cashflows, dates, p, settlement_date) * 100 for p in price_range]
+
+            # Calculate percentage changes
             price_changes_range = [(p / price - 1) * 100 for p in price_range]
+            irr_changes_range = [(irr / current_irr - 1) * 100 for irr in irrs]
 
-            # Add line for this bond
-            y_values = price_range if x_axis_option == "Precio" else price_changes_range
+            # Select y-values based on plot type
+            if plot_type == "Precio Absoluto":
+                y_values = price_range
+                y_axis_title = "Precio del Bono"
+                current_y = price
+            elif plot_type == "Variación Porcentual del Precio":
+                y_values = price_changes_range
+                y_axis_title = "Variación del Precio (%)"
+                current_y = 0
+            else:  # Variación Porcentual Precio vs TIR
+                y_values = price_changes_range
+                x_values = irr_changes_range
+                y_axis_title = "Variación del Precio (%)"
+                current_y = 0
+                current_x = 0
 
-            # Create custom hover text
-            if x_axis_option == "Precio":
-                hover_template = (
-                        f"{bond}<br>" +
-                        "TIR: %{x:.2f}%<br>" +
-                        "Precio: %{y:,.2f}<extra></extra>"
-                )
+            # Add trace with appropriate x and y values
+            if plot_type == "Variación Porcentual Precio vs TIR":
+                fig.add_trace(go.Scatter(
+                    x=x_values,
+                    y=y_values,
+                    mode='lines',
+                    name=bond,
+                    line=dict(color=color)
+                ))
             else:
-                hover_template = (
-                        f"{bond}<br>" +
-                        "TIR: %{x:.2f}%<br>" +
-                        "Variación: %{y:.1f}%<extra></extra>"
-                )
+                fig.add_trace(go.Scatter(
+                    x=irrs,
+                    y=y_values,
+                    mode='lines',
+                    name=bond,
+                    line=dict(color=color)
+                ))
 
-            fig.add_trace(go.Scatter(
-                x=irrs,
-                y=y_values,
-                mode='lines',
-                name=bond,
-                line=dict(color=color),
-                hovertemplate=hover_template
-            ))
-
-            # Add point for current price/IRR
-            current_irr = calculate_irr_with_timing(cashflows, dates, price, settlement_date) * 100
-
-            # Create custom hover template for current point
-            if x_axis_option == "Precio":
-                current_hover_template = (
-                        f"{bond} (Actual)<br>" +
-                        "TIR: %{x:.2f}%<br>" +
-                        "Precio: %{y:,.2f}<extra></extra>"
-                )
+            # Add current point
+            if plot_type == "Variación Porcentual Precio vs TIR":
+                fig.add_trace(go.Scatter(
+                    x=[current_x],
+                    y=[current_y],
+                    mode='markers',
+                    name=f'{bond} (Actual)',
+                    marker=dict(color=color, size=10)
+                ))
             else:
-                current_hover_template = (
-                        f"{bond} (Actual)<br>" +
-                        "TIR: %{x:.2f}%<br>" +
-                        "Variación: %{y:.1f}%<extra></extra>"
-                )
-
-            fig.add_trace(go.Scatter(
-                x=[current_irr],
-                y=[price if x_axis_option == "Precio" else 0],
-                mode='markers',
-                name=f'{bond} (Actual)',
-                marker=dict(color=color, size=10),
-                hovertemplate=current_hover_template
-            ))
+                fig.add_trace(go.Scatter(
+                    x=[current_irr],
+                    y=[current_y],
+                    mode='markers',
+                    name=f'{bond} (Actual)',
+                    marker=dict(color=color, size=10)
+                ))
 
     else:
         # Original single bond analysis
@@ -717,7 +722,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         },
         xaxis=dict(
             title=dict(
-                text='TIR (%)',
+                text="Variación TIR (%)" if plot_type == "Variación Porcentual Precio vs TIR" else "TIR (%)",
                 font=dict(size=18, color='lightgrey')
             ),
             gridcolor='dimgray',
@@ -730,7 +735,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         ),
         yaxis=dict(
             title=dict(
-                text='Precio del Bono' if x_axis_option == "Precio" else 'Variación del Precio (%)',
+                text=y_axis_title,
                 font=dict(size=18, color='lightgrey')
             ),
             gridcolor='dimgray',
