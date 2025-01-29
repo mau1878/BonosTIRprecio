@@ -495,7 +495,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     price_change_percent = st.slider('Rango de Variación de Precio (%)', -50, 50, (-20, 20))
     plot_type = st.radio(
         "Seleccione el tipo de gráfico:",
-        ["Precio Absoluto", "Variación Porcentual del Precio", "Variación Porcentual Precio vs TIR"],
+        ["Precio Absoluto", "Variación Porcentual del Precio", "Variación Porcentual Precio vs Variación Porcentual TIR"],
         horizontal=True
     )
 
@@ -660,7 +660,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
                 current_x = 0
 
             # Add trace with appropriate x and y values
-            if plot_type == "Variación Porcentual Precio vs TIR":
+            if plot_type == "Variación Porcentual Precio vs Variación Porcentual TIR":
                 fig.add_trace(go.Scatter(
                     x=x_values,
                     y=y_values,
@@ -678,7 +678,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
                 ))
 
             # Add current point
-            if plot_type == "Variación Porcentual Precio vs TIR":
+            if plot_type == "Variación Porcentual Precio vs Variación Porcentual TIR":
                 fig.add_trace(go.Scatter(
                     x=[current_x],
                     y=[current_y],
@@ -722,7 +722,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         },
         xaxis=dict(
             title=dict(
-                text="Variación TIR (%)" if plot_type == "Variación Porcentual Precio vs TIR" else "TIR (%)",
+                text="Variación TIR (%)" if plot_type == "Variación Porcentual Precio vs Variación Porcentual TIR" else "TIR (%)",
                 font=dict(size=18, color='lightgrey')
             ),
             gridcolor='dimgray',
