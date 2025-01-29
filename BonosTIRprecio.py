@@ -12,11 +12,150 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 
+
 # Set page language and title
 st.set_page_config(page_title="Calculadora de TIR de Bonos")
 
 
+def get_argentine_holidays(year):
+    """
+    Generate Argentine holidays for a specific year
+    """
+    def easter(year):
+        """Calculate Easter Sunday date for a given year"""
+        a = year % 19
+        b = year // 100
+        c = year % 100
+        d = b // 4
+        e = b % 4
+        f = (b + 8) // 25
+        g = (b - f + 1) // 3
+        h = (19 * a + b - d - g + 15) % 30
+        i = c // 4
+        k = c % 4
+        l = (32 + 2 * e + 2 * i - h - k) % 7
+        m = (a + 11 * h + 22 * l) // 451
+        month = (h + l - 7 * m + 114) // 31
+        day = ((h + l - 7 * m + 114) % 31) + 1
+        return pd.Timestamp(year, month, day)
 
+    # Calculate Easter-dependent dates
+    easter_sunday = easter(year)
+    good_friday = easter_sunday - pd.Timedelta(days=2)
+    carnival_monday = easter_sunday - pd.Timedelta(days=48)
+    carnival_tuesday = easter_sunday - pd.Timedelta(days=47)
+
+    # Fixed holidays
+    fixed_holidays = [
+        (1, 1),   # New Year's Day
+        (3, 24),  # Day of Remembrance
+        (4, 2),   # Malvinas Day
+        (5, 1),   # Labor Day
+        (5, 25),  # May Revolution Day
+        (6, 17),  # Martin Miguel de Güemes Day
+        (6, 20),  # Flag Day
+        (7, 9),   # Independence Day
+        (8, 17),  # San Martín Day
+        (10, 12), # Day of Respect for Cultural Diversity
+        (11, 20), # National Sovereignty Day
+        (12, 8),  # Immaculate Conception
+        (12, 25), # Christmas Day
+    ]
+
+    # Convert fixed holidays to timestamps
+    holidays = [pd.Timestamp(year, month, day) for month, day in fixed_holidays]
+
+    # Add movable holidays
+    holidays.extend([
+        carnival_monday,
+        carnival_tuesday,
+        good_friday
+    ])
+
+    # Bridge holidays (if holiday falls on Tuesday or Thursday, Monday or Friday becomes holiday)
+    bridge_holidays = []
+    for holiday in holidays:
+        if holiday.dayofweek == 1:  # Tuesday
+            bridge_holidays.append(holiday - pd.Timedelta(days=1))  # Monday
+        elif holiday.dayofweek == 3:  # Thursday
+            bridge_holidays.append(holiday + pd.Timedelta(days=1))  # Friday
+
+    # Add bridge holidays to the main list
+    holidays.extend(bridge_holidays)
+
+    # Sort all holidays
+    return pd.DatetimeIndex(sorted(set(holidays)))
+
+def get_previous_business_day_argentina(date, days_back=10):
+    """
+    Get the Argentine business day that is 'days_back' business days before the given date
+    """
+    # Convert date to pandas timestamp if it's not already
+    date = pd.Timestamp(date)
+
+    # Get holidays for the relevant years
+    current_year = date.year
+    prev_year = current_year - 1
+
+    holidays = pd.DatetimeIndex([])
+    for year in [prev_year, current_year]:
+        holidays = holidays.append(get_argentine_holidays(year))
+
+    # Create business day offset excluding holidays
+    bd = pd.offsets.CustomBusinessDay(holidays=holidays)
+
+    # Get the date that is 'days_back' business days before the reference date
+    reference_date = date - days_back * bd
+
+    return reference_date.to_pydatetime()
+def fetch_cer_for_date(date):
+    """
+    Fetch CER value for a specific date from BCRA API
+
+    Args:
+        date (datetime): Date to fetch CER for
+
+    Returns:
+        float: CER value for the specified date, or None if not found
+    """
+    # Get the Argentine business day 10 days before settlement
+    reference_date = get_previous_business_day_argentina(date)
+
+    # Format date as required by the API
+    date_str = reference_date.strftime('%Y-%m-%d')
+
+    # API endpoint for CER (ID 30)
+    url = "https://api.bcra.gob.ar/estadisticas/v3.0/Monetarias/30"
+
+    # Parameters for the request
+    params = {
+        'desde': date_str,
+        'hasta': date_str,
+        'limit': 1
+    }
+
+    try:
+        # Make the GET request with SSL verification disabled
+        response = requests.get(url, params=params, verify=False)
+
+        if response.status_code == 200:
+            data = response.json()
+
+            # Check if we got any results
+            if data['results'] and len(data['results']) > 0:
+                cer_value = data['results'][0]['valor']
+                st.info(f"Usando CER del {reference_date.strftime('%d/%m/%Y')}: {cer_value:.4f}")
+                return cer_value
+            else:
+                st.warning(f"No se encontró valor de CER para {reference_date.strftime('%d/%m/%Y')}")
+                return None
+        else:
+            st.error(f"Error al obtener CER: Status code {response.status_code}")
+            return None
+
+    except Exception as e:
+        st.error(f"Error al obtener CER: {str(e)}")
+        return None
 def fetch_current_prices():
     """Fetch current prices from Google Sheets CSV"""
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSh_h0veiwhaDs-8u0W75LcPc7DoKQ_zWjsMN6EHzfMlgWvGJMC_AFe319FTQXps3ACnkgEZaNPJopz/pub?gid=1705467858&single=true&output=csv"
@@ -185,8 +324,16 @@ number_format = default_number_format
 
 # Get today's date
 today = datetime.now()
+# Add this near the settlement date input
 settlement_date = st.date_input("Fecha de Liquidación", today)
 settlement_date = datetime.combine(settlement_date, datetime.min.time())
+
+# Fetch CER value for settlement date
+cer_value = fetch_cer_for_date(settlement_date)
+if cer_value is not None:
+    st.info(f"CER para la fecha de liquidación: {cer_value:.4f}")
+else:
+    st.warning("No se pudo obtener el valor del CER para la fecha especificada")
 
 if input_method == "Seleccionar bonos predefinidos":
     # Load bonds from CSV
@@ -224,17 +371,33 @@ if input_method == "Seleccionar bonos predefinidos":
             all_data = []  # Initialize all_data list here
 
             # Inside the "Seleccionar bonos predefinidos" section:
+            # Inside the "Seleccionar bonos predefinidos" section, modify the cashflow processing part:
             for bond in selected_bonds:
                 bond_data = bonds_df[bonds_df['Bono'] == bond]
                 bond_cashflows = []
                 bond_dates = []
+
+                # Check if this bond has CER adjustment
+                has_cer = 'CERinicial' in bond_data.columns and not pd.isna(bond_data['CERinicial'].iloc[0])
 
                 for _, row in bond_data.iterrows():
                     date = datetime.strptime(row['Fecha'], '%d/%m/%Y')
                     # Skip if date is equal to or before settlement date
                     if date <= settlement_date:
                         continue
+
                     cashflow = float(row['Cashflow'])
+
+                    # Apply CER adjustment if applicable
+                    # Apply CER adjustment if applicable
+                    if has_cer and cer_value is not None:
+                        initial_cer = float(row['CERinicial'])
+                        cashflow = cashflow * cer_value / initial_cer
+                        # Only show one CER adjustment message per bond
+                        if not hasattr(st.session_state, f'cer_message_{bond}'):
+                            st.info(f"Flujos de {bond} ajustados por CER (CER actual: {cer_value:.4f})")
+                            setattr(st.session_state, f'cer_message_{bond}', True)
+
                     bond_cashflows.append(cashflow)
                     bond_dates.append(date)
 
@@ -244,7 +407,10 @@ if input_method == "Seleccionar bonos predefinidos":
                         'Fecha': date,
                         'Días desde Liquidación': (date - settlement_date).days,
                         'Años desde Liquidación': (date - settlement_date).days / 365,
-                        'Flujo de Caja': cashflow
+                        'Flujo de Caja Original': float(row['Cashflow']),
+                        'Flujo de Caja Ajustado': cashflow if has_cer else float(row['Cashflow']),
+                        'CER Inicial': row['CERinicial'] if has_cer else None,
+                        'CER Actual': cer_value if has_cer else None
                     })
 
                 all_cashflows.append(bond_cashflows)
@@ -297,9 +463,14 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     if input_method == "Seleccionar bonos predefinidos":
         df_input = pd.DataFrame(all_data)
         df_input = df_input.sort_values('Fecha')
-        df_input['Flujo de Caja'] = df_input['Flujo de Caja'].apply(
-            lambda x: f"{x:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.')
-        )
+
+        # Format the cashflow columns
+        for col in ['Flujo de Caja Original', 'Flujo de Caja Ajustado']:
+            df_input[col] = df_input[col].apply(
+                lambda x: f"{x:,.2f}".replace(',', '@').replace('.', ',').replace('@', '.')
+            )
+
+        # Display the DataFrame with all columns
         st.dataframe(df_input)
     else:
         df_manual = pd.DataFrame({
@@ -455,7 +626,7 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     if input_method == "Seleccionar bonos predefinidos":
         colors = px.colors.qualitative.Set3[:len(selected_bonds)]
         for bond, cashflows, dates, price, color in zip(selected_bonds, all_cashflows, all_dates, bond_prices.values(),
-                                                      colors):
+                                                        colors):
             # Calculate price range for this bond
             price_range = np.linspace(
                 price * (1 + price_change_percent[0] / 100),
@@ -469,22 +640,54 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
 
             # Add line for this bond
             y_values = price_range if x_axis_option == "Precio" else price_changes_range
+
+            # Create custom hover text
+            if x_axis_option == "Precio":
+                hover_template = (
+                        f"{bond}<br>" +
+                        "TIR: %{x:.2f}%<br>" +
+                        "Precio: %{y:,.2f}<extra></extra>"
+                )
+            else:
+                hover_template = (
+                        f"{bond}<br>" +
+                        "TIR: %{x:.2f}%<br>" +
+                        "Variación: %{y:.1f}%<extra></extra>"
+                )
+
             fig.add_trace(go.Scatter(
                 x=irrs,
                 y=y_values,
                 mode='lines',
                 name=bond,
-                line=dict(color=color)
+                line=dict(color=color),
+                hovertemplate=hover_template
             ))
 
             # Add point for current price/IRR
             current_irr = calculate_irr_with_timing(cashflows, dates, price, settlement_date) * 100
+
+            # Create custom hover template for current point
+            if x_axis_option == "Precio":
+                current_hover_template = (
+                        f"{bond} (Actual)<br>" +
+                        "TIR: %{x:.2f}%<br>" +
+                        "Precio: %{y:,.2f}<extra></extra>"
+                )
+            else:
+                current_hover_template = (
+                        f"{bond} (Actual)<br>" +
+                        "TIR: %{x:.2f}%<br>" +
+                        "Variación: %{y:.1f}%<extra></extra>"
+                )
+
             fig.add_trace(go.Scatter(
                 x=[current_irr],
                 y=[price if x_axis_option == "Precio" else 0],
                 mode='markers',
                 name=f'{bond} (Actual)',
-                marker=dict(color=color, size=10)
+                marker=dict(color=color, size=10),
+                hovertemplate=current_hover_template
             ))
 
     else:
@@ -569,11 +772,6 @@ if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
     fig.update_xaxes(showline=True, linewidth=2, linecolor='black', mirror=True)
     fig.update_yaxes(showline=True, linewidth=2, linecolor='black', mirror=True)
 
-    # Update hover template
-    if x_axis_option == "Precio":
-        fig.update_traces(hovertemplate="TIR: %{x:.2f}%<br>Precio: %{y:,.2f}<extra></extra>")
-    else:
-        fig.update_traces(hovertemplate="TIR: %{x:.2f}%<br>Variación: %{y:.1f}%<extra></extra>")
 
     # Display the chart
     st.plotly_chart(fig)
