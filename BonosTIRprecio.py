@@ -108,6 +108,17 @@ def get_previous_business_day_argentina(date, days_back=10):
     reference_date = date - days_back * bd
 
     return reference_date.to_pydatetime()
+
+def get_next_business_day_argentina(date):
+    """
+    Get the next business day in Argentina, accounting for holidays.
+    """
+    date = pd.Timestamp(date)
+    current_year = date.year
+    holidays = get_argentine_holidays(current_year)
+    bd = pd.offsets.CustomBusinessDay(holidays=holidays)
+    next_day = date + bd
+    return next_day.to_pydatetime()
 def fetch_cer_for_date(date):
     """
     Fetch CER value for a specific date from BCRA API
@@ -209,7 +220,7 @@ def xirr(values, dates):
         return float('nan')
 
 def calculate_irr_with_timing(cashflows, dates, price, start_date):
-    """Calculate IRR considering the actual timing of cash flows"""
+    """Calculate IRR considering the actual timing of cash flows, with start_date as settlement date."""
     values = [-price] + cashflows
     dates = [start_date] + dates
     return xirr(values, dates)
@@ -230,7 +241,7 @@ def parse_number(number_str, format_type):
         raise ValueError(f"No se pudo procesar el número: {number_str}") from e
 
 def parse_cashflows(text, number_format, settlement_date):
-    """Parse cash flows from text input with 'DD/MM/YYYY Coupon' and filter by settlement date"""
+    """Parse cash flows from text input with 'DD/MM/YYYY Coupon' and filter by settlement date."""
     cashflows = []
     dates = []
 
@@ -243,12 +254,13 @@ def parse_cashflows(text, number_format, settlement_date):
 
                 try:
                     date = datetime.strptime(date_str, '%d/%m/%Y')
-                    # Skip if date is equal to or before settlement date
+                    # Skip if date is on or before settlement date (T+1 convention)
                     if date <= settlement_date:
                         continue
                 except ValueError:
                     st.error(f"Formato de fecha inválido en la línea: {line}. Use DD/MM/YYYY")
                     continue
+                # ... (rest of the function remains the same)
 
                 try:
                     amount = parse_number(amount_str.strip(), number_format)
@@ -325,7 +337,11 @@ number_format = default_number_format
 # Get today's date
 today = datetime.now()
 # Add this near the settlement date input
-settlement_date = st.date_input("Fecha de Liquidación", today)
+# Replace the existing settlement_date input
+st.subheader("Fecha de Liquidación (T+1)")
+trade_date = st.date_input("Fecha de Operación (Trade Date)", today)
+settlement_date = get_next_business_day_argentina(trade_date)
+st.info(f"Fecha de Liquidación (T+1): {settlement_date.strftime('%d/%m/%Y')}")
 settlement_date = datetime.combine(settlement_date, datetime.min.time())
 
 # Fetch CER value for settlement date
@@ -376,15 +392,15 @@ if input_method == "Seleccionar bonos predefinidos":
                 bond_data = bonds_df[bonds_df['Bono'] == bond]
                 bond_cashflows = []
                 bond_dates = []
-
-                # Check if this bond has CER adjustment
+            
                 has_cer = 'CERinicial' in bond_data.columns and not pd.isna(bond_data['CERinicial'].iloc[0])
-
+            
                 for _, row in bond_data.iterrows():
                     date = datetime.strptime(row['Fecha'], '%d/%m/%Y')
-                    # Skip if date is equal to or before settlement date
+                    # Skip if date is on or before settlement date (T+1 convention)
                     if date <= settlement_date:
                         continue
+                    # ... (rest of the loop remains the same)
 
                     cashflow = float(row['Cashflow'])
 
@@ -447,6 +463,7 @@ else:
 # Display processed cash flows and sensitivity analysis
 if (input_method == "Seleccionar bonos predefinidos" and selected_bonds) or \
         (input_method == "Ingresar flujos manualmente" and cashflow_text):
+    st.info("Nota: Debido a la convención de liquidación T+1 en Argentina, los flujos de caja en o antes de la fecha de liquidación son excluidos del cálculo de la TIR.")
 
     # Modified check to handle both cases
     if input_method == "Seleccionar bonos predefinidos":
